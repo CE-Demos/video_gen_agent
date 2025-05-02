@@ -1,96 +1,99 @@
+# interface/app.py
 import gradio as gr
-# Assuming you have the ADK installed
-# import google_adk  # Replace with the actual ADK import
+import requests
 import os
-# Video editing library (choose one)
-# from moviepy.editor import concatenate_videoclips, VideoFileClip
-# import ffmpeg
+from config import GCS_BUCKET_NAME
+from utils.gcs_utils import upload_to_gcs, download_from_gcs, list_blobs
+from utils.video_utils import concatenate_videos
 
-# --- ADK Agent (Illustrative - Adapt based on ADK documentation) ---
-# class VideoGenerationAgent(google_adk.Agent):
-#     def generate_video(self, prompt: str):
-#         # This part will depend heavily on the ADK's Veo 2 API
-#         try:
-#             # Placeholder for ADK call to Veo 2
-#             video_path = f"generated_video_{prompt.replace(' ', '_')}.mp4"
-#             # Simulate video generation (replace with actual ADK call)
-#             print(f"Simulating video generation for: {prompt}")
-#             # ... ADK interaction with Veo 2 ...
-#             # Assuming the ADK saves the video to video_path
-#             return video_path
-#         except Exception as e:
-#             return f"Error generating video: {e}"
+# Assuming your agents are deployed and have accessible endpoints
+PROMPT_READER_ENDPOINT = "YOUR_PROMPT_READER_AGENT_ENDPOINT"
+VIDEO_GENERATOR_ENDPOINT = "YOUR_VIDEO_GENERATOR_AGENT_ENDPOINT"
+PROMPT_SAVER_ENDPOINT = "YOUR_PROMPT_SAVER_AGENT_ENDPOINT"
+PROMPT_RETRIEVER_ENDPOINT = "YOUR_PROMPT_RETRIEVER_AGENT_ENDPOINT"
 
-# agent = VideoGenerationAgent()
-
-# --- Gradio Interface Functions ---
-def generate_video_fn(prompt):
-    # Replace this with the actual ADK agent call
-    print(f"Generating video for prompt: {prompt}")
-    # Assuming the ADK agent returns a path to the generated video
-    video_path = f"generated_video_{prompt.replace(' ', '_')}.mp4"
-    # Simulate creating a dummy video file for demonstration
-    with open(video_path, 'w') as f:
-        f.write("This is a dummy video file.")
-    return video_path
-
-def download_video_fn(video_path):
-    return video_path
-
-def upload_media_fn(files):
-    return [file.name for file in files]
-
-def stitch_videos_fn(video_paths):
-    if len(video_paths) < 2:
-        return "Please select at least two videos to stitch."
+def generate_video_from_prompt(prompt):
+    payload = {"prompt": prompt}
     try:
-        # --- Example using moviepy (uncomment if you install it) ---
-        # clips = [VideoFileClip(vp) for vp in video_paths]
-        # final_clip = concatenate_videoclips(clips)
-        # stitched_path = "stitched_video.mp4"
-        # final_clip.write_videofile(stitched_path)
-        # --- Example using ffmpeg (requires ffmpeg to be installed) ---
-        # input_files = ' '.join(f"-i '{vp}'" for vp in video_paths)
-        # command = f"ffmpeg {input_files} -filter_complex concat=n={len(video_paths)}:v=1:a=1 -c:v libx264 -crf 23 stitched_video.mp4"
-        # os.system(command)
-        stitched_path = "stitched_video.mp4" # Placeholder
-        with open(stitched_path, 'w') as f:
-            f.write("This is a dummy stitched video.")
-        return stitched_path
-    except Exception as e:
-        return f"Error stitching videos: {e}"
+        response = requests.post(PROMPT_READER_ENDPOINT, json=payload)
+        response.raise_for_status()
+        result = response.text # Or parse JSON if your agent returns JSON
+        # Assuming video_generator_agent returns the path to the generated video
+        video_path = requests.post(VIDEO_GENERATOR_ENDPOINT, json={"prompt": prompt}).text
+        return result, video_path
+    except requests.exceptions.RequestException as e:
+        return f"Error communicating with agent: {e}", None
 
-def save_prompt_fn(prompt):
-    prompts_dir = "saved_prompts"
-    os.makedirs(prompts_dir, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(prompts_dir, f"prompt_{timestamp}.txt")
-    with open(filename, 'w') as f:
-        f.write(prompt)
-    return f"Prompt saved to {filename}"
+def download_video(video_path):
+    if video_path and os.path.exists(video_path):
+        return video_path
+    else:
+        return "Video not found."
+
+def upload_videos_and_concatenate(video_files):
+    if not video_files or len(video_files) < 2:
+        return "Please upload at least two video files."
+    video_paths = [file.name for file in video_files]
+    output_path = concatenate_videos(video_paths)
+    return output_path
+
+def save_successful_prompt(prompt):
+    payload = {"prompt": prompt}
+    try:
+        response = requests.post(PROMPT_SAVER_ENDPOINT, json=payload)
+        response.raise_for_status()
+        return response.text
+    except requests.exceptions.RequestException as e:
+        return f"Error saving prompt: {e}"
 
 def load_saved_prompts():
-    prompts_dir = "saved_prompts"
-    if os.path.exists(prompts_dir):
-        return [f for f in os.listdir(prompts_dir) if f.endswith(".txt")]
-    return []
-
-def load_prompt_content_fn(prompt_file):
-    prompts_dir = "saved_prompts"
-    filepath = os.path.join(prompts_dir, prompt_file)
     try:
-        with open(filepath, 'r') as f:
-            return f.read()
-    except Exception as e:
-        return f"Error loading prompt: {e}"
-
-import datetime
+        response = requests.post(PROMPT_RETRIEVER_ENDPOINT)
+        response.raise_for_status()
+        prompts = response.json() # Assuming the agent returns a list of prompts in JSON
+        return prompts
+    except requests.exceptions.RequestException as e:
+        return [f"Error retrieving prompts: {e}"]
 
 with gr.Blocks() as demo:
-    gr.Markdown("# Veo 2 Video Generation Agent")
+    gr.Markdown("# Veo Video Generation Bot")
 
-    with gr.Row():
-        prompt_input = gr.Text(label="Video Generation Prompt")
+    with gr.Tab("Generate Video"):
+        prompt_input = gr.Textbox(label="Enter Text Prompt for Video")
         generate_button = gr.Button("Generate Video")
+        generation_output = gr.Textbox(label="Generation Status")
+        video_output = gr.Video(label="Generated Video")
+        save_prompt_checkbox = gr.Checkbox(label="Save this prompt?")
+        save_prompt_button = gr.Button("Save Prompt")
+        save_prompt_status = gr.Textbox(label="Save Status")
 
-    video_output = gr.Video(label="Generated Video")
+        generate_button.click(
+            fn=generate_video_from_prompt,
+            inputs=prompt_input,
+            outputs=[generation_output, video_output]
+        )
+        save_prompt_button.click(
+            fn=save_successful_prompt,
+            inputs=prompt_input,
+            outputs=save_prompt_status,
+            condition=[save_prompt_checkbox]
+        )
+        video_output.download_button(download, "downloaded_video.mp4")
+
+    with gr.Tab("Concatenate Videos"):
+        video_upload = gr.Files(label="Upload Videos to Concatenate (at least 2)")
+        concatenate_button = gr.Button("Concatenate Videos")
+        concatenated_video_output = gr.Video(label="Concatenated Video")
+        concatenate_button.click(
+            fn=upload_videos_and_concatenate,
+            inputs=video_upload,
+            outputs=concatenated_video_output
+        )
+        concatenated_video_output.download_button(download, "concatenated_result.mp4")
+
+    with gr.Tab("Saved Prompts"):
+        saved_prompts_output = gr.List(label="Saved Prompts")
+        load_prompts_button = gr.Button("Load Saved Prompts")
+        load_prompts_button.click(fn=load_saved_prompts, outputs=saved_prompts_output)
+
+demo.launch()
