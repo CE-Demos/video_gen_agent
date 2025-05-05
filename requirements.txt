@@ -2,3 +2,4 @@ gradio
 google-cloud-storage
 moviepy
 requests
+google-generativeai
