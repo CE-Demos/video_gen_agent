@@ -1,5 +1,6 @@
 utils/
 __pycache__
-
+temp_generated_videos/
 
 API_KEYs.txt
+concatenated_video.mp4

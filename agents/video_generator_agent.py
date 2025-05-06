@@ -81,28 +81,32 @@ class VideoGeneratorAgent:
         pass
 
     # Optional: Function to upload the generated video to GCS
-    def upload_video_to_gcs(self, video_path: str, destination_blob_name: str = None) -> Dict[str, Any]:
+    def upload_video_to_gcs(self, video_path: str, destination_blob_name: str) -> Dict[str, Any]:
+        """
+        Internal function to upload the generated video to Google Cloud Storage.
+        """
+    def upload_video_to_gcs(self, video_path: str, destination_blob_name: str) -> Dict[str, Any]:
+        """
+        Internal function to upload the generated video to Google Cloud Storage.
+        """
         if not self.gcs_bucket_name:
-            warning_message = "Warning: GCS bucket name is not configured. Skipping video upload."
-            logging.warning(warning_message)
-            return {"status": "warning", "message": warning_message}
-
+            logging.error("GCS bucket name not configured, upload failed.")
+            return {"status": "error", "message": "GCS bucket name not configured."}
         if not os.path.exists(video_path):
-            error_message = f"Error: Video file not found at: {video_path}"
-            logging.error(error_message)
-            return {"status": "error", "message": error_message}
-
-        filename = os.path.basename(video_path)
-        blob_name = destination_blob_name if destination_blob_name else f"generated_videos/{filename}"
-
-        if upload_to_gcs(self.gcs_bucket_name, video_path, blob_name):
-            gcs_uri = f"gs://{self.gcs_bucket_name}/{blob_name}"
-            logging.info(f"Video uploaded to GCS: {gcs_uri}")
-            return {"status": "success", "gcs_uri": gcs_uri}
-        else:
-            error_message = f"Error uploading video {video_path} to GCS."
-            logging.error(error_message)
-            return {"status": "error", "message": error_message}
+            logging.error(f"Video file not found at: {video_path}, upload failed.")
+            return {"status": "error", "message": f"Video file not found at: {video_path}"}
+        try:
+            if upload_to_gcs(self.gcs_bucket_name, video_path, destination_blob_name):
+                gcs_uri = f"gs://{self.gcs_bucket_name}/{destination_blob_name}"
+                logging.info(f"Video uploaded to GCS successfully: {gcs_uri}")
+                return {"status": "success", "gcs_uri": gcs_uri}
+            else:
+                logging.error(f"Error occurred during upload of {video_path} to GCS.")
+                return {"status": "error", "message": f"Error occurred during upload of {video_path} to GCS."}
+        except Exception as e:
+            logging.error(f"Exception during GCS upload: {e}")
+            return {"status": "error", "message": f"Exception during GCS upload: {e}"}
+        
 
     # Example of how this agent might be run or integrated
     def run(self, data: Dict[str, Any]):

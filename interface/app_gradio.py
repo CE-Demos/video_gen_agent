@@ -19,7 +19,17 @@ prompt_reader_agent = PromptReaderAgent()
 
 def generate_video_from_prompt(prompt, aspect_ratio, allow_people):
     generation_result = prompt_reader_agent.process_prompt(prompt, aspect_ratio, allow_people)
+    video_path = generation_result.get("video_path")
+    if video_path:
+            # Dynamically create the blob name based on the filename
+            video_filename = os.path.basename(video_path)
+            gcs_blob_name = f"generated_videos/{video_filename}"
+            # Trigger GCS upload here with the dynamic blob name
+            upload_status = prompt_reader_agent.video_generator_agent.upload_video_to_gcs(video_path, gcs_blob_name)
+            print(f"GCS Upload Status (Text): {upload_status}")
+
     return generation_result.get("message", "Video generation initiated."), generation_result.get("video_path")
+
 
 def download_video(video_path):
     if video_path and os.path.exists(video_path):
@@ -28,11 +38,32 @@ def download_video(video_path):
         return "Video not found."
 
 def upload_videos_and_concatenate(video_files):
-    if not video_files or len(video_files) < 2:
+     if not video_files or len(video_files) < 2:
         return "Please upload at least two video files."
-    video_paths = [file.name for file in video_files]
-    output_path = concatenate_videos(video_paths)
-    return output_path
+     video_paths = []
+     original_filenames = []
+     for file in video_files:
+        if file.name.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+            video_paths.append(file.name)
+            original_filenames.append(os.path.splitext(os.path.basename(file.name))[0])
+        else:
+            return f"Error: Uploaded file '{file.name}' is not a recognized video format."
+     if len(video_paths) < 2:
+        return "Please upload at least two valid video files."
+
+     output_path = concatenate_videos(video_paths)
+     if output_path:
+        # Dynamically create the blob name using the filename of the first video
+        first_video_name = original_filenames[0] if original_filenames else "concatenated"
+        concatenated_filename = f"{first_video_name}_concatenated.mp4"
+        gcs_blob_name = f"concatenated_videos/{concatenated_filename}"
+        # Trigger GCS upload after concatenation with the dynamic blob name
+        upload_status = prompt_reader_agent.video_generator_agent.upload_video_to_gcs(output_path, gcs_blob_name)
+        print(f"GCS Upload Status (Concatenation): {upload_status}")
+        return output_path
+     else:
+        return "Error during video concatenation."
+    # return output_path
 
 def save_successful_prompt(prompt, save_checkbox_value):
     if save_checkbox_value:
